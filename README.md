@@ -24,7 +24,13 @@ Zed extensions cannot add a command palette action or a native file-finder modal
 brew install fzf
 ```
 
-The script uses `zed` from your PATH when it is there. Otherwise it uses `/Applications/Zed.app/Contents/MacOS/cli`. To put `zed` on your PATH, open the command palette in Zed and run `zed: install cli`.
+There is no release build. Install Go, then from this repository run:
+
+```sh
+go build -o bin/zed-project-switcher .
+```
+
+The program uses `zed` from your PATH when it is there. Otherwise it uses `/Applications/Zed.app/Contents/MacOS/cli`. To put `zed` on your PATH, open the command palette in Zed and run `zed: install cli`.
 
 ### 1. Task
 
