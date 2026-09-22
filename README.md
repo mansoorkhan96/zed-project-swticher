@@ -24,22 +24,24 @@ Zed extensions cannot add a command palette action or a native file-finder modal
 brew install fzf
 ```
 
-There is no release build. Install Go, then from this repository run:
-
-```sh
-go build -o bin/zed-project-switcher .
-```
-
 The program uses `zed` from your PATH when it is there. Otherwise it uses `/Applications/Zed.app/Contents/MacOS/cli`. To put `zed` on your PATH, open the command palette in Zed and run `zed: install cli`.
 
-### 1. Task
+### 1. Shell
+
+From this repository:
+
+```sh
+chmod +x zed-project-switcher.sh
+```
+
+### 2. Task
 
 Open your global tasks file with `zed: open tasks` and add this object to the array:
 
 ```json
 {
   "label": "Switch Project",
-  "command": "/Users/alex/Code/zed-project-switcher/bin/zed-project-switcher",
+  "command": "/Users/alex/Code/zed-project-switcher/zed-project-switcher.sh",
   "args": ["$ZED_WORKTREE_ROOT"],
   "use_new_terminal": true,
   "allow_concurrent_runs": true,
@@ -51,7 +53,7 @@ Open your global tasks file with `zed: open tasks` and add this object to the ar
 
 If `tasks.json` is empty, wrap it in `[ ]`.
 
-### 2. Shortcut
+### 3. Shortcut
 
 Open your keymap with `zed: open keymap` and add:
 
@@ -74,6 +76,16 @@ On Linux and Windows, bind `ctrl-;` instead of `cmd-;`.
 
 If you already have a `"context": "Workspace"` block, put the `cmd-;` binding inside that block's `"bindings"` object.
 
+## Go
+
+A Go build of the same picker is a little faster. There is no release build. Install Go, then from this repository run:
+
+```sh
+go build -o bin/zed-project-switcher .
+```
+
+Point the task `command` at `/Users/alex/Code/zed-project-switcher/bin/zed-project-switcher`.
+
 ## Use
 
 Open any project inside your projects folder, then press `cmd+;`.
@@ -81,13 +93,13 @@ Open any project inside your projects folder, then press `cmd+;`.
 From a shell, the same picker is:
 
 ```sh
-/Users/alex/Code/zed-project-switcher/bin/zed-project-switcher /Users/alex/Code/switch-project
+/Users/alex/Code/zed-project-switcher/zed-project-switcher.sh /Users/alex/Code/web-app
 ```
 
 Print the list without opening the picker:
 
 ```sh
-/Users/alex/Code/zed-project-switcher/bin/zed-project-switcher --list /Users/alex/Code/switch-project
+/Users/alex/Code/zed-project-switcher/zed-project-switcher.sh --list /Users/alex/Code/web-app
 ```
 
 To scan a different folder than the parent of the current project, set `ZED_PROJECT_SWITCHER_DIRECTORY` in the task's environment:
