@@ -2,6 +2,8 @@
 
 A project picker for Zed. It lists every directory next to the project you have open, shows the current git branch, and opens the one you pick in a new window.
 
+![Switch Project picker](screenshot.png)
+
 Press `cmd+;` and you get a searchable list like:
 
 ```
