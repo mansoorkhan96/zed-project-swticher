@@ -115,7 +115,13 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	cmd := exec.Command(zed, "-n", parts[1])
+	// Zed's new-window CLI mode never reuses a window for a project root,
+	// so focus the window ourselves when the project is already open.
+	flag := "-n"
+	if isOpenInZed(parts[1]) {
+		flag = "-e"
+	}
+	cmd := exec.Command(zed, flag, parts[1])
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
@@ -131,7 +137,7 @@ func usage() {
 	fmt.Fprint(os.Stderr, `Usage: zed-project-switcher [--list] [project-path]
 
 Scan the parent of project-path for directories, show each one as
-"name / branch", and open the selection in a new Zed window.
+"name / branch", and open the selection in Zed.
 
   --list         Print the sorted list and exit
   project-path   Current project. Defaults to $ZED_WORKTREE_ROOT, then the
@@ -350,6 +356,35 @@ func findZed() (string, error) {
 		}
 	}
 	return "", fmt.Errorf("zed-project-switcher: could not find the zed CLI. In Zed, run \"zed: install cli\"")
+}
+
+// isOpenInZed reports whether a window in the running Zed session has path
+// open as its project, going by Zed's workspace database. Any failure counts
+// as not open, which falls back to opening a new window.
+func isOpenInZed(path string) bool {
+	sqlite, err := exec.LookPath("sqlite3")
+	if err != nil {
+		return false
+	}
+	home, _ := os.UserHomeDir()
+	db := filepath.Join(home, "Library/Application Support/Zed/db/0-stable/db.sqlite")
+	if _, err := os.Stat(db); err != nil {
+		return false
+	}
+	out, err := exec.Command(sqlite, "-readonly", db, openWorkspaceQuery(path)).Output()
+	return err == nil && strings.TrimSpace(string(out)) == "1"
+}
+
+// openWorkspaceQuery matches a workspace for path in the current session
+// whose window is still in Zed's window stack.
+func openWorkspaceQuery(path string) string {
+	quoted := "'" + strings.ReplaceAll(path, "'", "''") + "'"
+	return `SELECT 1 FROM workspaces w
+JOIN kv_store s ON s.key = 'session_id' AND s.value = w.session_id
+JOIN kv_store k ON k.key = 'session_window_stack'
+WHERE w.paths = ` + quoted + ` AND w.remote_connection_id IS NULL
+AND EXISTS (SELECT 1 FROM json_each(k.value) WHERE json_each.value = w.window_id)
+LIMIT 1;`
 }
 
 func isDir(path string) bool {

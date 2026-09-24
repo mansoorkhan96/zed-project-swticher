@@ -1,6 +1,6 @@
 # Zed Project Switcher
 
-A project picker for Zed. It lists every directory next to the project you have open, shows the current git branch, and opens the one you pick in a new window.
+A project picker for Zed. It lists every directory next to the project you have open, shows the current git branch, and opens the one you pick. If that project is already open in a Zed window, that window comes to the front instead.
 
 ![Switch Project picker](screenshot.png)
 
@@ -12,7 +12,7 @@ api-server / feature/login
 docs-site / 2.x
 ```
 
-Typing matches the directory name or the branch. The list starts out sorted by the most recently updated project. Choosing one runs `zed -n` on that folder.
+Typing matches the directory name or the branch. The list starts out sorted by the most recently updated project. Choosing one runs `zed -n` on that folder, or `zed -e` when that project is already open in a window, which brings the window to the front. Zed's CLI will not do that switch by itself for a project folder, so the picker checks Zed's workspace database (`~/Library/Application Support/Zed/db/0-stable/db.sqlite`) with `sqlite3`, which ships with macOS. If that check fails for any reason, it opens a new window.
 
 Zed extensions cannot add a command palette action or a native file-finder modal, so this is a small command plus a Zed task. The picker is `fzf` in a centered terminal.
 

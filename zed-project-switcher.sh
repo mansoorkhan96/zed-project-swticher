@@ -12,7 +12,7 @@ usage() {
 Usage: zed-project-switcher.sh [--list] [project-path]
 
 Scan the parent of project-path for directories, show each one as
-"name / branch", and open the selection in a new Zed window.
+"name / branch", and open the selection in Zed.
 
   --list         Print the sorted list and exit
   project-path   Current project. Defaults to $ZED_WORKTREE_ROOT, then the
@@ -256,4 +256,26 @@ if [[ -z "$zed_bin" ]]; then
   fi
 fi
 
-"$zed_bin" -n "$selected_path"
+# Zed's new-window CLI mode never reuses a window for a project root, so
+# focus the window ourselves when the project is already open.
+is_open_in_zed() {
+  local db="$HOME/Library/Application Support/Zed/db/0-stable/db.sqlite"
+  command -v sqlite3 >/dev/null 2>&1 || return 1
+  [[ -f "$db" ]] || return 1
+  local q="'"
+  local quoted="$q${1//$q/$q$q}$q"
+  local found
+  found=$(sqlite3 -readonly "$db" "SELECT 1 FROM workspaces w
+JOIN kv_store s ON s.key = 'session_id' AND s.value = w.session_id
+JOIN kv_store k ON k.key = 'session_window_stack'
+WHERE w.paths = $quoted AND w.remote_connection_id IS NULL
+AND EXISTS (SELECT 1 FROM json_each(k.value) WHERE json_each.value = w.window_id)
+LIMIT 1;" 2>/dev/null) || return 1
+  [[ "$found" == 1 ]]
+}
+
+open_flag=-n
+if is_open_in_zed "$selected_path"; then
+  open_flag=-e
+fi
+"$zed_bin" "$open_flag" "$selected_path"
