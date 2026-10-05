@@ -26,6 +26,8 @@ brew install fzf
 
 The program uses `zed` from your PATH when it is there. Otherwise it uses `/Applications/Zed.app/Contents/MacOS/cli`. To put `zed` on your PATH, open the command palette in Zed and run `zed: install cli`.
 
+The picker opens the project in whichever Zed launched it. Zed passes its bundle ID to the processes it starts (`__CFBundleIdentifier`), so when the task runs from Zed Dev or Zed Preview the picker uses `/Applications/Zed Dev.app` (or `Zed Preview.app`) and that build's workspace database (`db/0-dev`, `db/0-preview`) instead of the stable ones. Set `ZED_PROJECT_SWITCHER_ZED` to a CLI path to override this.
+
 ### 1. Shell
 
 From this repository:
