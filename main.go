@@ -338,24 +338,40 @@ func runFZF(fzfPath, feed string) (selected string, cancelled bool) {
 	return line, false
 }
 
+// zedFlavor returns the app bundle name and release channel of the Zed that
+// launched us. Zed sets the bundle ID of the app in every process it spawns,
+// so a dev build gets its own CLI and its own workspace database.
+func zedFlavor() (app, channel string) {
+	switch os.Getenv("__CFBundleIdentifier") {
+	case "dev.zed.Zed-Dev":
+		return "Zed Dev.app", "dev"
+	case "dev.zed.Zed-Preview":
+		return "Zed Preview.app", "preview"
+	}
+	return "Zed.app", "stable"
+}
+
 func findZed() (string, error) {
 	if override := os.Getenv("ZED_PROJECT_SWITCHER_ZED"); override != "" {
 		return override, nil
 	}
-	if found, err := exec.LookPath("zed"); err == nil {
-		return found, nil
+	app, channel := zedFlavor()
+	if channel == "stable" {
+		if found, err := exec.LookPath("zed"); err == nil {
+			return found, nil
+		}
 	}
 	home, _ := os.UserHomeDir()
 	candidates := []string{
-		"/Applications/Zed.app/Contents/MacOS/cli",
-		filepath.Join(home, "Applications/Zed.app/Contents/MacOS/cli"),
+		filepath.Join("/Applications", app, "Contents/MacOS/cli"),
+		filepath.Join(home, "Applications", app, "Contents/MacOS/cli"),
 	}
 	for _, candidate := range candidates {
 		if info, err := os.Stat(candidate); err == nil && info.Mode()&0111 != 0 {
 			return candidate, nil
 		}
 	}
-	return "", fmt.Errorf("zed-project-switcher: could not find the zed CLI. In Zed, run \"zed: install cli\"")
+	return "", fmt.Errorf("zed-project-switcher: could not find the CLI for %s. In Zed, run \"zed: install cli\"", app)
 }
 
 // isOpenInZed reports whether a window in the running Zed session has path
@@ -367,7 +383,8 @@ func isOpenInZed(path string) bool {
 		return false
 	}
 	home, _ := os.UserHomeDir()
-	db := filepath.Join(home, "Library/Application Support/Zed/db/0-stable/db.sqlite")
+	_, channel := zedFlavor()
+	db := filepath.Join(home, "Library/Application Support/Zed/db/0-"+channel+"/db.sqlite")
 	if _, err := os.Stat(db); err != nil {
 		return false
 	}

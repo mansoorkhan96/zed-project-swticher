@@ -242,16 +242,34 @@ selected=$(
 [[ -n "$selected" ]] || exit 0
 selected_path=${selected#*$'\t'}
 
+# Open the project in the Zed that launched us. Zed sets the bundle ID of
+# the app in every process it spawns, so a dev build gets its own CLI and
+# its own workspace database.
+case "${__CFBundleIdentifier:-}" in
+  dev.zed.Zed-Dev)
+    zed_app="Zed Dev.app"
+    zed_channel=dev
+    ;;
+  dev.zed.Zed-Preview)
+    zed_app="Zed Preview.app"
+    zed_channel=preview
+    ;;
+  *)
+    zed_app="Zed.app"
+    zed_channel=stable
+    ;;
+esac
+
 zed_bin=${ZED_PROJECT_SWITCHER_ZED:-}
 if [[ -z "$zed_bin" ]]; then
-  if command -v zed >/dev/null 2>&1; then
+  if [[ "$zed_channel" == stable ]] && command -v zed >/dev/null 2>&1; then
     zed_bin=$(command -v zed)
-  elif [[ -x /Applications/Zed.app/Contents/MacOS/cli ]]; then
-    zed_bin=/Applications/Zed.app/Contents/MacOS/cli
-  elif [[ -x "$HOME/Applications/Zed.app/Contents/MacOS/cli" ]]; then
-    zed_bin="$HOME/Applications/Zed.app/Contents/MacOS/cli"
+  elif [[ -x "/Applications/$zed_app/Contents/MacOS/cli" ]]; then
+    zed_bin="/Applications/$zed_app/Contents/MacOS/cli"
+  elif [[ -x "$HOME/Applications/$zed_app/Contents/MacOS/cli" ]]; then
+    zed_bin="$HOME/Applications/$zed_app/Contents/MacOS/cli"
   else
-    echo 'zed-project-switcher: could not find the zed CLI. In Zed, run "zed: install cli".' >&2
+    echo "zed-project-switcher: could not find the CLI for $zed_app. In Zed, run \"zed: install cli\"." >&2
     exit 1
   fi
 fi
@@ -259,7 +277,7 @@ fi
 # Zed's new-window CLI mode never reuses a window for a project root, so
 # focus the window ourselves when the project is already open.
 is_open_in_zed() {
-  local db="$HOME/Library/Application Support/Zed/db/0-stable/db.sqlite"
+  local db="$HOME/Library/Application Support/Zed/db/0-$zed_channel/db.sqlite"
   command -v sqlite3 >/dev/null 2>&1 || return 1
   [[ -f "$db" ]] || return 1
   local q="'"
