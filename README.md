@@ -44,7 +44,6 @@ Open your global tasks file with `zed: open tasks` and add this object to the ar
 {
   "label": "Switch Project",
   "command": "/Users/alex/Code/zed-project-switcher/zed-project-switcher.sh",
-  "args": ["$ZED_WORKTREE_ROOT"],
   "use_new_terminal": true,
   "allow_concurrent_runs": true,
   "hide": "on_success",
@@ -54,6 +53,10 @@ Open your global tasks file with `zed: open tasks` and add this object to the ar
 ```
 
 If `tasks.json` is empty, wrap it in `[ ]`.
+
+Leave out `"args": ["$ZED_WORKTREE_ROOT"]`. Zed silently skips a task when a variable it references has no value, for example in a window with no folder open. The picker reads `ZED_WORKTREE_ROOT` from its environment instead, and falls back to the working directory.
+
+If you set `max_tabs` in your Zed settings, a low value such as `1` makes Zed close your open file when the picker's terminal tab opens in the center pane.
 
 ### 3. Shortcut
 
