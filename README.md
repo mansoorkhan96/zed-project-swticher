@@ -12,7 +12,7 @@ api-server / feature/login
 docs-site / 2.x
 ```
 
-Typing matches the directory name or the branch. The list starts out sorted by the most recently updated project. Choosing one runs `zed -n` on that folder, or `zed -e` when that project is already open in a window, which brings the window to the front. Zed's CLI will not do that switch by itself for a project folder, so the picker checks Zed's workspace database (`~/Library/Application Support/Zed/db/0-stable/db.sqlite`) with `sqlite3`, which ships with macOS. If that check fails for any reason, it opens a new window.
+Typing matches the directory name or the branch. The list starts out sorted by the most recently updated project. The picker's title shows the folder it lists, such as `Switch Project · ~/Sites`. Choosing one runs `zed -n` on that folder, or `zed -e` when that project is already open in a window, which brings the window to the front. Zed's CLI will not do that switch by itself for a project folder, so the picker checks Zed's workspace database (`~/Library/Application Support/Zed/db/0-stable/db.sqlite`) with `sqlite3`, which ships with macOS. If that check fails for any reason, it opens a new window.
 
 Zed extensions cannot add a command palette action or a native file-finder modal, so this is a small command plus a Zed task. The picker is `fzf` in a centered terminal.
 
@@ -106,6 +106,19 @@ Print the list without opening the picker:
 ```sh
 /Users/alex/Code/zed-project-switcher/zed-project-switcher.sh --list /Users/alex/Code/web-app
 ```
+
+### Browse another folder
+
+Start the query with `~/`, `/`, `./` or `../` to list a different folder. `./` and `../` are relative to the folder in the title, so from `~/Sites`, `../Code/` lists `~/Code`. Anything after the last `/` filters that folder, so `~/code/web` lists `~/Code` and matches `web`. Those rows show the folder you typed in front of each name:
+
+```
+~/code/web-app / main
+~/code/web-docs / 2.x
+```
+
+Case does not matter on macOS: `~/code` finds `~/Code`. Clear the query to go back to the original list.
+
+### Default folder
 
 To scan a different folder than the parent of the current project, set `ZED_PROJECT_SWITCHER_DIRECTORY` in the task's environment:
 
