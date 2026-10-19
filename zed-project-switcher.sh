@@ -19,6 +19,10 @@ Scan the parent of project-path for directories, show each one as
                  working directory.
 
 Set ZED_PROJECT_SWITCHER_DIRECTORY to scan a folder other than the project's parent.
+
+In the picker, a query that starts with ~/, /, ./ or ../ lists that folder
+instead, with ./ and ../ relative to the scanned folder. ~/code/web lists
+~/code and filters it by "web".
 EOF
 }
 
@@ -32,6 +36,160 @@ trim() {
 is_dir() {
   [[ -d "$1" ]]
 }
+
+# Fill sorted with "mtime<TAB>label<TAB>path" rows for the directories in
+# $1, most recently updated first.
+scan_projects() {
+  local projects_dir=$1
+  names=()
+  proj_paths=()
+  git_dirs=()
+
+  for path in "${projects_dir%/}"/*; do
+    [[ -d "$path" ]] || continue
+    name=${path##*/}
+    [[ "$name" == .* ]] && continue
+
+    git_path="$path/.git"
+    git_dir=""
+    if [[ -f "$git_path" && ! -L "$git_path" ]]; then
+      line=""
+      IFS= read -r line < "$git_path" || true
+      line=$(trim "$line")
+      if [[ "$line" =~ ^gitdir:[[:space:]]*(.+)$ ]]; then
+        target=$(trim "${BASH_REMATCH[1]}")
+        if [[ "$target" != /* ]]; then
+          target="$path/$target"
+        fi
+        if [[ -d "$target" ]]; then
+          git_dir=$target
+        fi
+      fi
+    elif [[ -d "$git_path" ]]; then
+      git_dir=$git_path
+    fi
+
+    names+=("$name")
+    proj_paths+=("$path")
+    git_dirs+=("$git_dir")
+  done
+
+  sorted=()
+  if [[ ${#names[@]} -eq 0 ]]; then
+    return 0
+  fi
+
+  stat_files=()
+  stat_counts=()
+  for git_dir in "${git_dirs[@]}"; do
+    count=0
+    if [[ -n "$git_dir" ]]; then
+      if [[ -e "$git_dir/HEAD" ]]; then
+        stat_files+=("$git_dir/HEAD")
+        count=$((count + 1))
+      fi
+      if [[ -e "$git_dir/index" ]]; then
+        stat_files+=("$git_dir/index")
+        count=$((count + 1))
+      fi
+    fi
+    stat_counts+=("$count")
+  done
+
+  mtimes=()
+  if [[ ${#stat_files[@]} -gt 0 ]]; then
+    while IFS= read -r stamp; do
+      mtimes+=("$stamp")
+    done < <(stat -f '%m' "${stat_files[@]}")
+  fi
+
+  rows=()
+  stamp_index=0
+  for i in "${!names[@]}"; do
+    name=${names[$i]}
+    path=${proj_paths[$i]}
+    git_dir=${git_dirs[$i]}
+    branch=""
+    newest=0
+    count=${stat_counts[$i]}
+    taken=0
+    while [[ $taken -lt $count ]]; do
+      stamp=${mtimes[$stamp_index]}
+      stamp_index=$((stamp_index + 1))
+      taken=$((taken + 1))
+      if [[ $stamp -gt $newest ]]; then
+        newest=$stamp
+      fi
+    done
+
+    if [[ -n "$git_dir" && -f "$git_dir/HEAD" ]]; then
+      head=""
+      IFS= read -r head < "$git_dir/HEAD" || true
+      head=$(trim "$head")
+      if [[ "$head" =~ ^ref:[[:space:]]*refs/heads/(.+)$ ]]; then
+        branch=$(trim "${BASH_REMATCH[1]}")
+      elif [[ "$head" =~ ^[0-9a-fA-F]{7,40}$ ]]; then
+        branch=${head:0:7}
+      fi
+    fi
+
+    if [[ $newest -eq 0 ]]; then
+      newest=$(stat -f '%m' "$path")
+    fi
+
+    if [[ -n "$branch" ]]; then
+      label="$name / $git_icon $branch"
+    else
+      label=$name
+    fi
+    rows+=("$newest"$'\t'"$label"$'\t'"$path")
+  done
+
+  while IFS= read -r row; do
+    sorted+=("$row")
+  done < <(printf '%s\n' "${rows[@]}" | sort -t $'\t' -k1,1nr -k2,2)
+}
+
+# Pick the folder to list for an fzf query. A query that starts like a path
+# lists the folder up to its last slash, with ./ and ../ taken relative to
+# base, and its rows keep that typed folder as a prefix so fzf still matches
+# the whole query. Any other query lists base. /bin/pwd -P spells the folder
+# the way it is on disk (bash's builtin keeps the typed case), so a typed
+# ~/code finds ~/Code and Zed gets the path it has in its database.
+browse_target() {
+  local base=$1 query=$2
+  query=${query#"${query%%[! ]*}"}
+  case "$query" in
+    '~'|.|..) query+=/ ;;
+  esac
+  browse_dir=$base
+  browse_prefix=""
+  case "$query" in
+    /*|'~/'*|./*|../*) ;;
+    *) return 0 ;;
+  esac
+
+  browse_prefix=${query%/*}/
+  case "$browse_prefix" in
+    '~/'*) browse_dir="$HOME/${browse_prefix#'~/'}" ;;
+    /*) browse_dir=$browse_prefix ;;
+    *) browse_dir="$base/$browse_prefix" ;;
+  esac
+  browse_dir=$(cd "$browse_dir" 2>/dev/null && /bin/pwd -P) || browse_dir=""
+}
+
+shopt -s nullglob
+
+# fzf reruns us on every keystroke to list the folder the query points at.
+if [[ $# -eq 3 && "$1" == --feed ]]; then
+  browse_target "$2" "$3"
+  [[ -n "$browse_dir" ]] || exit 0
+  scan_projects "$browse_dir"
+  for row in ${sorted[@]+"${sorted[@]}"}; do
+    printf '%s%s\n' "$browse_prefix" "${row#*$'\t'}"
+  done
+  exit 0
+fi
 
 list_only=0
 project_arg=""
@@ -94,115 +252,12 @@ else
   projects_dir=$(dirname "$current")
 fi
 
-names=()
-proj_paths=()
-git_dirs=()
-
-shopt -s nullglob
-for path in "$projects_dir"/*; do
-  [[ -d "$path" ]] || continue
-  name=${path##*/}
-  [[ "$name" == .* ]] && continue
-
-  git_path="$path/.git"
-  git_dir=""
-  if [[ -f "$git_path" && ! -L "$git_path" ]]; then
-    line=""
-    IFS= read -r line < "$git_path" || true
-    line=$(trim "$line")
-    if [[ "$line" =~ ^gitdir:[[:space:]]*(.+)$ ]]; then
-      target=$(trim "${BASH_REMATCH[1]}")
-      if [[ "$target" != /* ]]; then
-        target="$path/$target"
-      fi
-      if [[ -d "$target" ]]; then
-        git_dir=$target
-      fi
-    fi
-  elif [[ -d "$git_path" ]]; then
-    git_dir=$git_path
-  fi
-
-  names+=("$name")
-  proj_paths+=("$path")
-  git_dirs+=("$git_dir")
-done
-
-if [[ ${#names[@]} -eq 0 ]]; then
+scan_projects "$projects_dir"
+if [[ ${#sorted[@]} -eq 0 ]]; then
   echo "zed-project-switcher: no project directories in $projects_dir" >&2
   exit 1
 fi
 
-stat_files=()
-stat_counts=()
-for git_dir in "${git_dirs[@]}"; do
-  count=0
-  if [[ -n "$git_dir" ]]; then
-    if [[ -e "$git_dir/HEAD" ]]; then
-      stat_files+=("$git_dir/HEAD")
-      count=$((count + 1))
-    fi
-    if [[ -e "$git_dir/index" ]]; then
-      stat_files+=("$git_dir/index")
-      count=$((count + 1))
-    fi
-  fi
-  stat_counts+=("$count")
-done
-
-mtimes=()
-if [[ ${#stat_files[@]} -gt 0 ]]; then
-  while IFS= read -r stamp; do
-    mtimes+=("$stamp")
-  done < <(stat -f '%m' "${stat_files[@]}")
-fi
-
-rows=()
-stamp_index=0
-for i in "${!names[@]}"; do
-  name=${names[$i]}
-  path=${proj_paths[$i]}
-  git_dir=${git_dirs[$i]}
-  branch=""
-  newest=0
-  count=${stat_counts[$i]}
-  taken=0
-  while [[ $taken -lt $count ]]; do
-    stamp=${mtimes[$stamp_index]}
-    stamp_index=$((stamp_index + 1))
-    taken=$((taken + 1))
-    if [[ $stamp -gt $newest ]]; then
-      newest=$stamp
-    fi
-  done
-
-  if [[ -n "$git_dir" && -f "$git_dir/HEAD" ]]; then
-    head=""
-    IFS= read -r head < "$git_dir/HEAD" || true
-    head=$(trim "$head")
-    if [[ "$head" =~ ^ref:[[:space:]]*refs/heads/(.+)$ ]]; then
-      branch=$(trim "${BASH_REMATCH[1]}")
-    elif [[ "$head" =~ ^[0-9a-fA-F]{7,40}$ ]]; then
-      branch=${head:0:7}
-    fi
-  fi
-
-  if [[ $newest -eq 0 ]]; then
-    newest=$(stat -f '%m' "$path")
-  fi
-
-  if [[ -n "$branch" ]]; then
-    label="$name / $git_icon $branch"
-  else
-    label=$name
-  fi
-  rows+=("$newest"$'\t'"$label"$'\t'"$path")
-done
-
-sorted=()
-while IFS= read -r row; do
-  sorted+=("$row")
-done < <(printf '%s\n' "${rows[@]}" | sort -t $'\t' -k1,1nr -k2,2)
 
 if [[ $list_only -eq 1 ]]; then
   for row in "${sorted[@]}"; do
@@ -217,6 +272,13 @@ if ! command -v fzf >/dev/null 2>&1; then
   exit 1
 fi
 
+self="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/$(basename "${BASH_SOURCE[0]}")"
+reload="$(printf '%q' "$self") --feed $(printf '%q' "$projects_dir") {q}"
+title_dir=$projects_dir
+if [[ "$title_dir" == "$HOME" || "$title_dir" == "$HOME"/* ]]; then
+  title_dir="~${title_dir#"$HOME"}"
+fi
+
 feed=""
 for row in "${sorted[@]}"; do
   rest=${row#*$'\t'}
@@ -228,15 +290,16 @@ selected=$(
     --prompt '> ' \
     --no-sort \
     --reverse \
-    --margin '16%,20%' \
+    --margin '16%,8%' \
     --border rounded \
-    --border-label ' Switch Project ' \
+    --border-label " Switch Project · $title_dir " \
     --padding '1,2' \
     --delimiter $'\t' \
     --nth 1 \
     --with-nth 1 \
     --no-bold \
-    --color "$palenight_colors"
+    --color "$palenight_colors" \
+    --bind "change:reload:$reload"
 ) || exit 0
 
 [[ -n "$selected" ]] || exit 0

@@ -33,6 +33,15 @@ type project struct {
 func main() {
 	os.Setenv("PATH", "/opt/homebrew/bin:/usr/local/bin:"+os.Getenv("PATH"))
 
+	// fzf reruns us on every keystroke to list the folder the query points at.
+	if len(os.Args) == 4 && os.Args[1] == "--feed" {
+		dir, prefix := browseTarget(os.Args[2], os.Args[3])
+		if entries, err := projectsIn(dir); err == nil {
+			fmt.Print(feedFor(entries, prefix))
+		}
+		return
+	}
+
 	listOnly, projectArg, err := parseArgs(os.Args[1:])
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -95,12 +104,15 @@ func main() {
 		os.Exit(1)
 	}
 
-	var feed strings.Builder
-	for _, entry := range entries {
-		fmt.Fprintf(&feed, "%s\t%s\n", entry.label, entry.path)
+	self, err := os.Executable()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "zed-project-switcher: %s\n", err)
+		os.Exit(1)
 	}
+	reload := shellQuote(self) + " --feed " + shellQuote(projectsDir) + " {q}"
+	title := " Switch Project · " + tildePath(projectsDir) + " "
 
-	selected, cancelled := runFZF(fzfPath, feed.String())
+	selected, cancelled := runFZF(fzfPath, feedFor(entries, ""), title, reload)
 	if cancelled {
 		return
 	}
@@ -144,6 +156,10 @@ Scan the parent of project-path for directories, show each one as
                  working directory.
 
 Set ZED_PROJECT_SWITCHER_DIRECTORY to scan a folder other than the project's parent.
+
+In the picker, a query that starts with ~/, /, ./ or ../ lists that folder
+instead, with ./ and ../ relative to the scanned folder. ~/code/web lists
+~/code and filters it by "web".
 `)
 }
 
@@ -202,6 +218,94 @@ func projectsIn(directory string) ([]project, error) {
 		return entries[i].label < entries[j].label
 	})
 	return entries, nil
+}
+
+func feedFor(entries []project, prefix string) string {
+	var feed strings.Builder
+	for _, entry := range entries {
+		fmt.Fprintf(&feed, "%s%s\t%s\n", prefix, entry.label, entry.path)
+	}
+	return feed.String()
+}
+
+// browseTarget picks the folder to list for an fzf query. A query that starts
+// like a path lists the folder up to its last slash, with ./ and ../ taken
+// relative to base, and its rows keep that typed folder as a prefix so fzf
+// still matches the whole query. Any other query lists base.
+func browseTarget(base, query string) (dir, prefix string) {
+	query = strings.TrimLeft(query, " ")
+	switch query {
+	case "~", ".", "..":
+		query += "/"
+	}
+	isPath := false
+	for _, start := range []string{"/", "~/", "./", "../"} {
+		if strings.HasPrefix(query, start) {
+			isPath = true
+		}
+	}
+	if !isPath {
+		return base, ""
+	}
+
+	prefix = query[:strings.LastIndex(query, "/")+1]
+	switch {
+	case strings.HasPrefix(prefix, "~/"):
+		home, _ := os.UserHomeDir()
+		dir = filepath.Join(home, prefix[2:])
+	case filepath.IsAbs(prefix):
+		dir = filepath.Clean(prefix)
+	default:
+		dir = filepath.Join(base, prefix)
+	}
+	if resolved, err := filepath.EvalSymlinks(dir); err == nil {
+		dir = resolved
+	}
+	return matchCase(dir), prefix
+}
+
+// matchCase spells each part of an absolute path the way it is on disk, so a
+// typed ~/code finds ~/Code on a case-insensitive volume and the path handed
+// to Zed matches the one in its workspace database.
+func matchCase(path string) string {
+	fixed := "/"
+	for _, part := range strings.Split(path, "/") {
+		if part == "" {
+			continue
+		}
+		spelled := part
+		if children, err := os.ReadDir(fixed); err == nil {
+			for _, child := range children {
+				if child.Name() == part {
+					spelled = part
+					break
+				}
+				if strings.EqualFold(child.Name(), part) {
+					spelled = child.Name()
+				}
+			}
+		}
+		fixed = filepath.Join(fixed, spelled)
+	}
+	return fixed
+}
+
+func tildePath(path string) string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return path
+	}
+	if path == home {
+		return "~"
+	}
+	if strings.HasPrefix(path, home+"/") {
+		return "~" + path[len(home):]
+	}
+	return path
+}
+
+func shellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", `'\''`) + "'"
 }
 
 func inspectProject(path, name string) project {
@@ -294,7 +398,7 @@ func firstLine(path string) (string, error) {
 	return strings.TrimSpace(scanner.Text()), nil
 }
 
-func runFZF(fzfPath, feed string) (selected string, cancelled bool) {
+func runFZF(fzfPath, feed, title, reload string) (selected string, cancelled bool) {
 	env := os.Environ()
 	filtered := make([]string, 0, len(env))
 	for _, item := range env {
@@ -308,15 +412,16 @@ func runFZF(fzfPath, feed string) (selected string, cancelled bool) {
 		"--prompt", "> ",
 		"--no-sort",
 		"--reverse",
-		"--margin", "16%,20%",
+		"--margin", "16%,8%",
 		"--border", "rounded",
-		"--border-label", " Switch Project ",
+		"--border-label", title,
 		"--padding", "1,2",
 		"--delimiter", "\t",
 		"--nth", "1",
 		"--with-nth", "1",
 		"--no-bold",
 		"--color", palenightColors,
+		"--bind", "change:reload:"+reload,
 	)
 	cmd.Stdin = strings.NewReader(feed)
 	cmd.Stderr = os.Stderr
